@@ -56,15 +56,35 @@ class FlexibleTable extends StatefulWidget {
 }
 
 class _FlexibleTableState extends State<FlexibleTable> {
-  late ScrollController _horizontalController;
+  // Horizontal scroll controller for the center header (programmatic only)
+  late ScrollController _horizontalHeaderController;
+  // Horizontal scroll controller for the center body (user-driven)
+  late ScrollController _horizontalBodyController;
+  // Vertical scroll controller shared across left/center/right zones
   late ScrollController _verticalController;
   late FlexibleTableBloc _bloc;
+
+  // Runtime adjustable column widths keyed by column key
+  late Map<String, double> _columnWidths;
 
   @override
   void initState() {
     super.initState();
-    _horizontalController = ScrollController();
+    _horizontalHeaderController = ScrollController();
+    _horizontalBodyController = ScrollController();
     _verticalController = ScrollController();
+
+    // Initialize column widths from the provided column definitions
+    _columnWidths = {for (final c in widget.columns) c.key: c.width};
+
+    // Keep header's horizontal position in sync with the body (one-way)
+    _horizontalBodyController.addListener(() {
+      if (_horizontalHeaderController.hasClients &&
+          _horizontalHeaderController.offset !=
+              _horizontalBodyController.offset) {
+        _horizontalHeaderController.jumpTo(_horizontalBodyController.offset);
+      }
+    });
 
     final initialData = widget.dataBuilder != null
         ? widget.dataBuilder!(context)
@@ -82,11 +102,22 @@ class _FlexibleTableState extends State<FlexibleTable> {
     if (widget.data != oldWidget.data && widget.data != null) {
       _bloc.add(UpdateDataEvent(widget.data!));
     }
+
+    // When columns change, refresh width map while preserving any adjusted widths
+    if (widget.columns != oldWidget.columns) {
+      final next = <String, double>{};
+      for (final c in widget.columns) {
+        next[c.key] = _columnWidths[c.key] ?? c.width;
+      }
+      _columnWidths = next;
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
-    _horizontalController.dispose();
+    _horizontalHeaderController.dispose();
+    _horizontalBodyController.dispose();
     _verticalController.dispose();
     _bloc.close();
     super.dispose();
@@ -100,7 +131,9 @@ class _FlexibleTableState extends State<FlexibleTable> {
         builder: (context, state) {
           return Column(
             children: [
+              // Table (header + body)
               Expanded(child: _buildTableContent(state)),
+              // Pagination controls (optional)
               if (widget.config.enablePagination)
                 _buildPaginationControls(state),
             ],
@@ -116,6 +149,13 @@ class _FlexibleTableState extends State<FlexibleTable> {
         ? state.displayedRows
         : state.allData;
 
+    // Split columns into pinned-left, center (scrollable), and pinned-right
+    final leftColumns = widget.columns.where((c) => c.pinLeft).toList();
+    final rightColumns = widget.columns.where((c) => c.pinRight).toList();
+    final centerColumns = widget.columns
+        .where((c) => !c.pinLeft && !c.pinRight)
+        .toList();
+
     return Material(
       elevation: widget.config.elevation,
       borderRadius: widget.config.borderRadius,
@@ -126,27 +166,19 @@ class _FlexibleTableState extends State<FlexibleTable> {
         ),
         child: Column(
           children: [
-            // Fixed Header
-            _buildHeaderRow(),
+            // Fixed Header (pinned L + scrollable center + pinned R)
+            _buildHeaderRow(
+              leftColumns: leftColumns,
+              centerColumns: centerColumns,
+              rightColumns: rightColumns,
+            ),
             // Scrollable Body
             Expanded(
-              child: Scrollbar(
-                controller: _verticalController,
-                thumbVisibility: true,
-                child: Scrollbar(
-                  controller: _horizontalController,
-                  thumbVisibility: true,
-                  notificationPredicate: (notification) =>
-                      notification.depth == 1,
-                  child: SingleChildScrollView(
-                    controller: _verticalController,
-                    child: SingleChildScrollView(
-                      controller: _horizontalController,
-                      scrollDirection: Axis.horizontal,
-                      child: _buildDataRows(displayData),
-                    ),
-                  ),
-                ),
+              child: _buildBody(
+                leftColumns: leftColumns,
+                centerColumns: centerColumns,
+                rightColumns: rightColumns,
+                rows: displayData,
               ),
             ),
           ],
@@ -156,7 +188,16 @@ class _FlexibleTableState extends State<FlexibleTable> {
   }
 
   /// Build the fixed header row
-  Widget _buildHeaderRow() {
+  Widget _buildHeaderRow({
+    required List<TableColumn> leftColumns,
+    required List<TableColumn> centerColumns,
+    required List<TableColumn> rightColumns,
+  }) {
+    final centerWidth = centerColumns.fold<double>(
+      0.0,
+      (sum, c) => sum + (_columnWidths[c.key] ?? c.width),
+    );
+
     return Container(
       height: widget.config.headerHeight,
       decoration: BoxDecoration(
@@ -173,58 +214,191 @@ class _FlexibleTableState extends State<FlexibleTable> {
             : null,
       ),
       child: Row(
-        children: widget.columns.map((column) {
-          return _buildHeaderCell(column);
-        }).toList(),
+        children: [
+          // Left pinned headers
+          if (leftColumns.isNotEmpty)
+            Row(children: leftColumns.map(_buildHeaderCell).toList()),
+
+          // Center scrollable headers
+          if (centerColumns.isNotEmpty)
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _horizontalHeaderController,
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                child: SizedBox(
+                  width: centerWidth,
+                  height: widget.config.headerHeight,
+                  child: Row(
+                    children: centerColumns.map(_buildHeaderCell).toList(),
+                  ),
+                ),
+              ),
+            ),
+
+          // Right pinned headers
+          if (rightColumns.isNotEmpty)
+            Row(children: rightColumns.map(_buildHeaderCell).toList()),
+        ],
       ),
     );
   }
 
   /// Build a single header cell
   Widget _buildHeaderCell(TableColumn column) {
-    return Container(
-      width: column.width,
-      padding: widget.config.cellPadding,
-      decoration: BoxDecoration(
-        border: _shouldShowGridLine(isVertical: true)
-            ? Border(
-                right: BorderSide(
-                  color: widget.config.gridLineColor,
-                  width: widget.config.gridLineWidth,
-                ),
-              )
-            : null,
-      ),
-      child: column.headerBuilder != null
-          ? column.headerBuilder!(context)
-          : Align(
-              alignment: column.alignment,
-              child: Text(
-                column.label,
-                style:
-                    widget.config.headerTextStyle ??
-                    Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+    final width = _columnWidths[column.key] ?? column.width;
+    return Stack(
+      children: [
+        Container(
+          width: width,
+          padding: widget.config.cellPadding,
+          decoration: BoxDecoration(
+            border: _shouldShowGridLine(isVertical: true)
+                ? Border(
+                    right: BorderSide(
+                      color: widget.config.gridLineColor,
+                      width: widget.config.gridLineWidth,
                     ),
-                overflow: widget.config.enableEllipsis
-                    ? TextOverflow.ellipsis
-                    : null,
+                  )
+                : null,
+          ),
+          child: column.headerBuilder != null
+              ? column.headerBuilder!(context)
+              : Align(
+                  alignment: column.alignment,
+                  child: Text(
+                    column.label,
+                    style:
+                        widget.config.headerTextStyle ??
+                        Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                    overflow: widget.config.enableEllipsis
+                        ? TextOverflow.ellipsis
+                        : null,
+                  ),
+                ),
+        ),
+        // Right-edge resize handle
+        Positioned(
+          top: 0,
+          right: 0,
+          bottom: 0,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.resizeLeftRight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (details) {
+                final current = _columnWidths[column.key] ?? column.width;
+                double next = current + details.delta.dx;
+                final minW = column.minWidth;
+                final maxW = column.maxWidth ?? double.infinity;
+                if (next < minW) next = minW;
+                if (next > maxW) next = maxW;
+                if (next != current) {
+                  setState(() {
+                    _columnWidths[column.key] = next;
+                  });
+                  widget.onColumnResize?.call(column.key, next);
+                }
+              },
+              child: Container(
+                width: 8,
+                color: Colors.transparent,
+                alignment: Alignment.centerRight,
+                child: Container(
+                  width: 1,
+                  color: _shouldShowGridLine(isVertical: true)
+                      ? widget.config.gridLineColor
+                      : Colors.transparent,
+                ),
               ),
             ),
+          ),
+        ),
+      ],
     );
   }
 
-  /// Build all data rows
-  Widget _buildDataRows(List<TableRowData> rows) {
-    return Column(
-      children: List.generate(rows.length, (index) {
-        return _buildDataRow(rows[index], index);
-      }),
+  /// Build the scrollable body with pinned columns
+  Widget _buildBody({
+    required List<TableColumn> leftColumns,
+    required List<TableColumn> centerColumns,
+    required List<TableColumn> rightColumns,
+    required List<TableRowData> rows,
+  }) {
+    final centerWidth = centerColumns.fold<double>(
+      0.0,
+      (sum, c) => sum + (_columnWidths[c.key] ?? c.width),
+    );
+    return Scrollbar(
+      controller: _verticalController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _verticalController,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Left pinned column cells
+            if (leftColumns.isNotEmpty)
+              Column(
+                children: List.generate(rows.length, (index) {
+                  return _buildPinnedRow(
+                    rowData: rows[index],
+                    index: index,
+                    columns: leftColumns,
+                  );
+                }),
+              ),
+
+            // Center horizontally scrollable cells
+            if (centerColumns.isNotEmpty)
+              Expanded(
+                child: Scrollbar(
+                  controller: _horizontalBodyController,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _horizontalBodyController,
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: centerWidth,
+                      child: Column(
+                        children: List.generate(rows.length, (index) {
+                          return _buildScrollableRow(
+                            rowData: rows[index],
+                            index: index,
+                            columns: centerColumns,
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Right pinned column cells
+            if (rightColumns.isNotEmpty)
+              Column(
+                children: List.generate(rows.length, (index) {
+                  return _buildPinnedRow(
+                    rowData: rows[index],
+                    index: index,
+                    columns: rightColumns,
+                  );
+                }),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
-  /// Build a single data row
-  Widget _buildDataRow(TableRowData rowData, int index) {
+  /// Build a single data row for a set of columns (used for pinned zones)
+  Widget _buildPinnedRow({
+    required TableRowData rowData,
+    required int index,
+    required List<TableColumn> columns,
+  }) {
     final rowColor =
         rowData.backgroundColor ??
         (widget.config.alternateRowColor != null && index.isOdd
@@ -251,12 +425,19 @@ class _FlexibleTableState extends State<FlexibleTable> {
               : null,
         ),
         child: Row(
-          children: widget.columns.map((column) {
-            return _buildDataCell(column, rowData);
-          }).toList(),
+          children: columns.map((c) => _buildDataCell(c, rowData)).toList(),
         ),
       ),
     );
+  }
+
+  /// Build a single data row for the scrollable center zone
+  Widget _buildScrollableRow({
+    required TableRowData rowData,
+    required int index,
+    required List<TableColumn> columns,
+  }) {
+    return _buildPinnedRow(rowData: rowData, index: index, columns: columns);
   }
 
   /// Build a single data cell
@@ -264,7 +445,7 @@ class _FlexibleTableState extends State<FlexibleTable> {
     final cellWidget = rowData.cells[column.key] ?? const SizedBox.shrink();
 
     return Container(
-      width: column.width,
+      width: _columnWidths[column.key] ?? column.width,
       padding: widget.config.cellPadding,
       decoration: BoxDecoration(
         border: _shouldShowGridLine(isVertical: true)

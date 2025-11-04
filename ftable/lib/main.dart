@@ -224,6 +224,7 @@ class _FlexibleTableDemoState extends State<FlexibleTableDemo> {
         label: 'ID',
         width: 80,
         alignment: Alignment.center,
+        pinLeft: true,
       ),
       const TableColumn(key: 'name', label: 'Name', width: 200),
       const TableColumn(key: 'email', label: 'Email', width: 250),
@@ -233,6 +234,7 @@ class _FlexibleTableDemoState extends State<FlexibleTableDemo> {
         label: 'Status',
         width: 120,
         alignment: Alignment.center,
+        pinRight: true,
       ),
     ];
   }
@@ -244,6 +246,7 @@ class _FlexibleTableDemoState extends State<FlexibleTableDemo> {
         label: 'ID',
         width: 80,
         alignment: Alignment.center,
+        pinLeft: true,
         headerBuilder: (context) => const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -266,6 +269,7 @@ class _FlexibleTableDemoState extends State<FlexibleTableDemo> {
         label: 'Salary',
         width: 150,
         alignment: Alignment.centerRight,
+        pinRight: true,
       ),
     ];
   }
@@ -277,13 +281,19 @@ class _FlexibleTableDemoState extends State<FlexibleTableDemo> {
         label: 'ID',
         width: 80,
         alignment: Alignment.center,
+        pinLeft: true,
       ),
       const TableColumn(key: 'name', label: 'Full Name', width: 200),
       const TableColumn(key: 'email', label: 'Email Address', width: 250),
       const TableColumn(key: 'phone', label: 'Phone', width: 150),
       const TableColumn(key: 'department', label: 'Department', width: 150),
       const TableColumn(key: 'role', label: 'Role', width: 150),
-      const TableColumn(key: 'joinDate', label: 'Join Date', width: 120),
+      const TableColumn(
+        key: 'joinDate',
+        label: 'Join Date',
+        width: 120,
+        pinRight: true,
+      ),
     ];
   }
 
