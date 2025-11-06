@@ -31,27 +31,6 @@ class MainApp extends StatelessWidget {
           '/login': (_) => const LoginPage(),
           '/home': (_) => const HomePage(),
         },
-        // Navigation based on auth state
-        builder: (context, child) {
-          return BlocListener<AuthBloc, AuthState>(
-            listenWhen: (prev, curr) => prev.user != curr.user,
-            listener: (context, state) {
-              if (state.user != null) {
-                Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil('/home', (r) => false);
-              } else {
-                // Don't redirect while loading
-                if (!state.isLoading) {
-                  Navigator.of(
-                    context,
-                  ).pushNamedAndRemoveUntil('/login', (r) => false);
-                }
-              }
-            },
-            child: child,
-          );
-        },
       ),
     );
   }

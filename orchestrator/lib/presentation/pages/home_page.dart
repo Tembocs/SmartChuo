@@ -9,26 +9,37 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('SmartChuo Orchestrator'),
-        actions: [
-          IconButton(
-            onPressed: () =>
-                context.read<AuthBloc>().add(const LogoutRequested()),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
+    // If the user becomes unauthenticated (e.g., logout), send them to login.
+    return BlocListener<AuthBloc, AuthState>(
+      listenWhen: (prev, curr) => prev.user != curr.user,
+      listener: (context, state) {
+        if (state.user == null && !state.isLoading) {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('SmartChuo Orchestrator'),
+          actions: [
+            IconButton(
+              onPressed: () =>
+                  context.read<AuthBloc>().add(const LogoutRequested()),
+              icon: const Icon(Icons.logout),
+              tooltip: 'Logout',
+            ),
+          ],
+        ),
+        body: Center(
+          child: BlocBuilder<AuthBloc, AuthState>(
+            builder: (context, state) {
+              final user = state.user;
+              return Text(
+                user != null ? 'Welcome, ${user.email}!' : 'Not logged in',
+              );
+            },
           ),
-        ],
-      ),
-      body: Center(
-        child: BlocBuilder<AuthBloc, AuthState>(
-          builder: (context, state) {
-            final user = state.user;
-            return Text(
-              user != null ? 'Welcome, ${user.email}!' : 'Not logged in',
-            );
-          },
         ),
       ),
     );
