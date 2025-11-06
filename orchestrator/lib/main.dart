@@ -7,7 +7,8 @@ import 'core/di/injector.dart';
 import 'presentation/bloc/auth/auth_bloc.dart';
 import 'presentation/pages/splash_page.dart';
 import 'presentation/pages/login_page.dart';
-import 'presentation/pages/home_page.dart';
+// import 'presentation/pages/home_page.dart'; // replaced by DashboardPage
+import 'presentation/pages/dashboard_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +30,8 @@ class MainApp extends StatelessWidget {
         routes: {
           '/splash': (_) => const SplashPage(),
           '/login': (_) => const LoginPage(),
-          '/home': (_) => const HomePage(),
+          // Use DashboardPage within AppShell as the home destination
+          '/home': (_) => const DashboardPage(),
         },
       ),
     );
